@@ -23,4 +23,4 @@ julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
 ### Test and mess around
-`julia test/tensortest.jl`
+`julia examples/linear_regression.jl`
