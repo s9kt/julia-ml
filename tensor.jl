@@ -41,6 +41,10 @@ Base.ndims(t::Tensor) = ndims(t.data)
 Base.length(t::Tensor) = length(t.data)
 is_scalar(t::Tensor) = length(t.data) == 1
 
+# ============================================================================
+# SHAPE UTILITIES (CRITICAL FOR BROADCASTING)
+# ============================================================================
+
 """
 Pad shape with 1s on the left to reach target_ndim dimensions
 """
@@ -84,19 +88,18 @@ Reduces gradient to match original tensor shape
 Critical for correct backprop through broadcasting
 """
 function sum_to_shape(grad::Array{Float64}, target_shape::Tuple)
-    current_shape = size(grad)
     result = grad
     
     # Handle extra leading dimensions
     while length(size(result)) > length(target_shape)
-        result = sum(result, dims=1)
+        result = Base.sum(result, dims=1)
         result = dropdims(result, dims=1)
     end
     
     # Handle broadcast dimensions
     for i in 1:length(target_shape)
         if target_shape[i] == 1 && size(result, i) > 1
-            result = sum(result, dims=i)
+            result = Base.sum(result, dims=i)
         end
     end
     
@@ -116,8 +119,8 @@ function Base.:+(a::Tensor, b::Tensor)
     output = Tensor(output_data, requires_grad=(a.requires_grad || b.requires_grad))
     output.is_leaf = false
     
-    # Build backward function
-    if output.requires_grad
+    # Build backward function only if gradients enabled
+    if output.requires_grad && GRAD_ENABLED[]
         captured_a_shape = size(a)
         captured_b_shape = size(b)
         
@@ -152,7 +155,7 @@ function Base.:*(a::Tensor, b::Tensor)
     output = Tensor(output_data, requires_grad=(a.requires_grad || b.requires_grad))
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         # CRITICAL: Capture forward pass values
         captured_a_data = copy(a.data)
         captured_b_data = copy(b.data)
@@ -191,7 +194,7 @@ function Base.:-(a::Tensor)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         output.backward_fn = function()
             if a.requires_grad
                 a.grad .+= -output.grad
@@ -219,7 +222,7 @@ function Base.:/(a::Tensor, b::Tensor)
     output = Tensor(output_data, requires_grad=(a.requires_grad || b.requires_grad))
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_a_data = copy(a.data)
         captured_b_data = copy(b.data)
         captured_a_shape = size(a)
@@ -258,7 +261,7 @@ function Base.:^(a::Tensor, exponent::Real)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_a_data = copy(a.data)
         captured_exponent = Float64(exponent)
         
@@ -276,6 +279,9 @@ function Base.:^(a::Tensor, exponent::Real)
     return output
 end
 
+# ============================================================================
+# MATRIX OPERATIONS
+# ============================================================================
 
 """
 Matrix multiplication: C = A @ B
@@ -290,7 +296,7 @@ function matmul(a::Tensor, b::Tensor)
     output = Tensor(output_data, requires_grad=(a.requires_grad || b.requires_grad))
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_a_data = copy(a.data)
         captured_b_data = copy(b.data)
         
@@ -328,7 +334,7 @@ function Base.transpose(a::Tensor)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         output.backward_fn = function()
             if a.requires_grad
                 # Gradient flows through by transposing back
@@ -355,7 +361,7 @@ function Base.reshape(a::Tensor, new_shape::Tuple)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_original_shape = size(a)
         
         output.backward_fn = function()
@@ -371,6 +377,10 @@ function Base.reshape(a::Tensor, new_shape::Tuple)
     
     return output
 end
+
+# ============================================================================
+# REDUCTION OPERATIONS
+# ============================================================================
 
 """
 Sum tensor along specified dimension or all elements
@@ -388,7 +398,7 @@ function Base.sum(a::Tensor; dims=nothing, keepdims=false)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_a_shape = size(a)
         captured_dims = dims
         captured_keepdims = keepdims
@@ -399,15 +409,16 @@ function Base.sum(a::Tensor; dims=nothing, keepdims=false)
                 grad_a = output.grad
                 
                 if !captured_keepdims && captured_dims !== nothing
-                    # Need to add back the reduced dimension
-                    if captured_dims isa Int
-                        grad_a = reshape(grad_a, tuple([i == captured_dims ? 1 : size(grad_a, i > captured_dims ? i-1 : i) for i in 1:length(captured_a_shape)]...))
-                    end
+                    # Add back the reduced dimension as size 1
+                    new_shape = collect(size(grad_a))
+                    insert!(new_shape, captured_dims, 1)
+                    grad_a = reshape(grad_a, tuple(new_shape...))
                 end
                 
                 # Broadcast to original shape
-                grad_a = grad_a .+ zeros(captured_a_shape)
-                a.grad .+= grad_a
+                grad_broadcasted = zeros(Float64, captured_a_shape)
+                grad_broadcasted .+= grad_a
+                a.grad .+= grad_broadcasted
             end
         end
         
@@ -432,6 +443,10 @@ function Statistics.mean(a::Tensor; dims=nothing, keepdims=false)
     return sum_result / count
 end
 
+# ============================================================================
+# ACTIVATION FUNCTIONS
+# ============================================================================
+
 """
 ReLU activation: max(0, x)
 """
@@ -440,7 +455,7 @@ function relu(a::Tensor)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_mask = a.data .> 0.0
         
         output.backward_fn = function()
@@ -465,7 +480,7 @@ function sigmoid(a::Tensor)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_output_data = copy(output_data)
         
         output.backward_fn = function()
@@ -490,7 +505,7 @@ function Base.tanh(a::Tensor)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_output_data = copy(output_data)
         
         output.backward_fn = function()
@@ -520,7 +535,7 @@ function softmax(a::Tensor; dims::Int=1)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_output_data = copy(output_data)
         captured_dims = dims
         
@@ -547,7 +562,7 @@ function Base.exp(a::Tensor)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_output_data = copy(output_data)
         
         output.backward_fn = function()
@@ -576,7 +591,7 @@ function Base.log(a::Tensor)
     output = Tensor(output_data, requires_grad=a.requires_grad)
     output.is_leaf = false
     
-    if output.requires_grad
+    if output.requires_grad && GRAD_ENABLED[]
         captured_a_data = copy(a.data)
         
         output.backward_fn = function()

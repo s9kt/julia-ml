@@ -99,8 +99,33 @@ try
 catch e; test_failed("Gradient: ReLU", e); end
 
 println("\n" * "="^60)
-println("Practical Example: Linear Regression")
+println("Testing @no_grad Optimization")
 println("="^60)
+
+try
+    x = Tensor([1.0, 2.0, 3.0])
+    
+    # With gradients (should build graph)
+    y = x^2
+    @assert y.backward_fn !== nothing
+    test_passed("Normal mode builds graph")
+    
+    # Without gradients (should NOT build graph)
+    @no_grad begin
+        z = x^2
+        @assert z.backward_fn === nothing  # No backward function!
+        @assert isempty(z.parents)         # No parents tracked!
+    end
+    test_passed("@no_grad disables graph building")
+    
+    # Verify it re-enables
+    w = x^2
+    @assert w.backward_fn !== nothing
+    test_passed("@no_grad context manager works correctly")
+    
+catch e
+    test_failed("@no_grad optimization", e)
+end
 
 println("\n" * "="^60)
 println("✓ All Tests Passed - Part 1 Implementation Working!")
