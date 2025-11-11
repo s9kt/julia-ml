@@ -95,7 +95,7 @@ mutable struct Linear <: Module
         weight = Tensor(randn(out_features, in_features) .* std, 
                        requires_grad=true, name="weight")
         
-        bias = use_bias ? Tensor(zeros(out_features), requires_grad=true, name="bias") : nothing
+        bias = use_bias ? Tensor(zeros(1, out_features), requires_grad=true, name="bias") : nothing
         
         new(weight, bias, in_features, out_features)
     end
