@@ -75,6 +75,6 @@ try
     # Combine
     plot(p1, p2, p3, layout=(1,3), size=(1400,400))
     mkpath("out")
-    savefig("out/linear_regression.png")
-    println("\n📊 Saved: linear_regression.png")
+    savefig("out/linear_regression_basic.png")
+    println("\n📊 Saved: linear_regression_basic.png")
 catch e; test_failed("Linear regression", e); end

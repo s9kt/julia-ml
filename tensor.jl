@@ -110,6 +110,27 @@ end
 # ELEMENT-WISE OPERATIONS
 # ============================================================================
 
+Base.iterate(t::Tensor) = iterate(t.data)
+Base.iterate(t::Tensor, state) = iterate(t.data, state)
+
+# Make Tensor broadcastable by treating it like its data
+Base.broadcastable(t::Tensor) = t.data
+
+# When broadcasting results in a scalar, ensure we get a scalar back
+Base.BroadcastStyle(::Type{<:Tensor}) = Base.Broadcast.Style{Array}()
+
+# Support element access for better integration
+Base.getindex(t::Tensor, i...) = t.data[i...]
+Base.setindex!(t::Tensor, v, i...) = t.data[i...] = v
+
+# Support copy operations
+Base.copy(t::Tensor) = Tensor(copy(t.data), requires_grad=t.requires_grad, name=t.name)
+Base.deepcopy(t::Tensor) = Tensor(copy(t.data), requires_grad=t.requires_grad, name=t.name)
+
+# Support conversion to Array when needed
+Base.Array(t::Tensor) = t.data
+Base.convert(::Type{Array}, t::Tensor) = t.data
+
 """
 Element-wise addition with broadcasting support
 """
