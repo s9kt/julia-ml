@@ -18,7 +18,7 @@ try
     
     # Generate data: y = 3x + 2 + noise
     num_points = 100
-    learning_rate = 0.001  # Can use single LR with proper loss functions
+    learning_rate = 0.0001  # Can use single LR with proper loss functions
     epochs = 500
     
     X_data = reshape(Float64.(1:num_points), (num_points, 1))
@@ -58,7 +58,7 @@ try
         
         # Update parameters (SGD step)
         w.data .-= learning_rate .* w.grad
-        b.data .-= learning_rate .* b.grad
+        b.data .-= 0.02 .* b.grad
         
         # Record progress
         push!(losses, loss.data[1])
@@ -166,7 +166,6 @@ try
     println("   - ✅ Maintains full tensor properties")
     println("   - ✅ Preserves computation graph")
     println("   - ✅ Automatic differentiation works correctly")
-    println("   - Can use unified learning rate")
     
     println("\nKey Takeaway:")
     println("Loss functions are not just convenience methods - they're essential")

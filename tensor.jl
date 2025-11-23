@@ -659,11 +659,7 @@ function backward!(root::Tensor)
     build_topo(root)
     
     # Step 2: Initialize root gradient
-    if is_scalar(root)
-        root.grad[1] = 1.0
-    else
-        root.grad .= ones(Float64, size(root.data))
-    end
+    root.grad .= ones(Float64, size(root.data))
     
     # Step 3: Propagate gradients backward
     for node in reverse(topo_order)
